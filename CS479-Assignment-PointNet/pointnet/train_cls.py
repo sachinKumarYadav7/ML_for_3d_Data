@@ -21,8 +21,10 @@ def step(points, labels, model):
     
     # TODO : Implement step function for classification.
 
-    loss = None
-    preds = None
+    logits = model(points)
+    loss = F.cross_entropy(logits, labels)
+    preds = logits.argmax(dim=1)
+
     return loss, preds
 
 

@@ -25,10 +25,9 @@ def step(points, pc_labels, class_labels, model):
     """
     
     # TODO : Implement step function for segmentation.
-
-    loss = None
-    logits = None
-    preds = None
+    logits = model(points, class_labels)
+    loss = F.cross_entropy(logits, pc_labels)
+    preds = logits.argmax(dim=1)
     return loss, logits, preds
 
 

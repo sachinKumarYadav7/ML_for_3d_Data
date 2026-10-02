@@ -5,8 +5,8 @@ pointnet/checkpoints/segmentation/**
 !**/.gitkeep
 ./.vscode/
 
-./.tmp/
-./.venv/
+./CS479-Assignment-PointNet/.tmp/
+./CS479-Assignment-PointNet/.venv/
 
 __pycache__/
 *.py[cod]
