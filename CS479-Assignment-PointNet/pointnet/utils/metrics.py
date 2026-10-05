@@ -79,7 +79,9 @@ class mIoU(nn.Module):
             8: [24, 25, 26, 27],
             9: [28, 29],
             10: [30, 31, 32, 33, 34, 35],
-            11: [35, 37],
+            # [CHANGED] Earlier: 11: [35, 37],
+            # Why: Mug's parts are 36 and 37 (see table above); 35 belongs to Motorbike.
+            11: [36, 37],
             12: [38, 39, 40],
             13: [41, 42, 43],
             14: [44, 45, 46],
@@ -111,7 +113,12 @@ class mIoU(nn.Module):
                 target = targets[i]
                 mask = torch.zeros_like(logit)
                 mask[pids, :] = 1
-                logit.masked_fill(mask == 0, -1e-9)
+                # [CHANGED] Earlier:
+                #   logit.masked_fill(mask == 0, -1e-9)
+                # Why: masked_fill is not in-place, so the result was thrown away; and -1e-9
+                # is ~0, not a large negative number. Together the mask did nothing and
+                # argmax could pick parts from other categories, lowering the mIoU.
+                logit = logit.masked_fill(mask == 0, -1e9)
                 masked_pred = torch.argmax(logit, dim=0)
                 batch_masked_pred[i] = masked_pred
 

@@ -71,7 +71,14 @@ class PointNetFeat(nn.Module):
 
         # point-wise mlp
         # TODO : Implement point-wise mlp model based on PointNet Architecture.
-        self.mlp1 = nn.Sequential(nn.Conv1d(3, 64, 1), nn.BatchNorm1d(64), nn.ReLU())
+        # [CHANGED] Earlier:
+        #   self.mlp1 = nn.Sequential(nn.Conv1d(3, 64, 1), nn.BatchNorm1d(64), nn.ReLU())
+        # Why: the PointNet paper uses a shared MLP(64, 64) before the feature transform,
+        # not a single 3->64 layer (same as mlp1 in PointNetPartSeg below).
+        self.mlp1 = nn.Sequential(
+            nn.Conv1d(3, 64, 1), nn.BatchNorm1d(64), nn.ReLU(),
+            nn.Conv1d(64, 64, 1), nn.BatchNorm1d(64), nn.ReLU(),
+        )
         self.mlp2 = nn.Sequential(nn.Conv1d(64, 128, 1), nn.BatchNorm1d(128), nn.ReLU())
         self.mlp3 = nn.Sequential(nn.Conv1d(128, 1024, 1), nn.BatchNorm1d(1024), nn.ReLU())
 
@@ -92,6 +99,7 @@ class PointNetFeat(nn.Module):
         x = pointcloud.transpose(1, 2)
         x = self.mlp1(x)
 
+        trans64 = None
         if self.feature_transform:
             trans64 = self.stn64(x)
             x = torch.bmm(x.transpose(1, 2), trans64).transpose(1, 2)
@@ -100,7 +108,12 @@ class PointNetFeat(nn.Module):
         x = self.mlp3(x)
         x = torch.max(x, 2)[0]
 
-        return x
+        # [CHANGED] Earlier:
+        #   return x
+        # Why: the 64x64 feature transform matrix must be returned so the training
+        # step can apply get_orthogonal_loss to it (regularization from the paper).
+        # trans64 is None when feature_transform=False (get_orthogonal_loss then returns 0).
+        return x, trans64
 
 
 class PointNetCls(nn.Module):
@@ -136,13 +149,19 @@ class PointNetCls(nn.Module):
         # TODO : Implement forward function.
         # Extract global PointNet feature
         # [B, N, 3] -> [B, 1024]
-        feat = self.pointnet_feat(pointcloud)
+        # [CHANGED] Earlier:
+        #   feat = self.pointnet_feat(pointcloud)
+        # Why: PointNetFeat now also returns the feature transform matrix.
+        feat, trans64 = self.pointnet_feat(pointcloud)
 
         # Classification MLP
         # [B, 1024] -> [B, num_classes]
         logits = self.mlp_cls(feat)
 
-        return logits
+        # [CHANGED] Earlier:
+        #   return logits
+        # Why: trans64 is needed in train_cls.step for the orthogonal regularization loss.
+        return logits, trans64
 
 class PointNetPartSeg(nn.Module):
     def __init__(self, m=50):
@@ -220,7 +239,10 @@ class PointNetPartSeg(nn.Module):
 
         x = self.mlp1(x)
 
-        point_feature = x
+        # [CHANGED] Earlier `point_feature = x` was set here, before the feature transform.
+        # Why: in the PointNet segmentation network the per-point 64-d features that get
+        # concatenated with the global feature are the ones AFTER the feature transform,
+        # so point_feature is now taken below, after the bmm with trans64.
 
         # [B, 64, N] -> [B, 64, 64]
         trans64 = self.stn64(x)
@@ -231,6 +253,8 @@ class PointNetPartSeg(nn.Module):
 
         # [B, N, 64] -> [B, 64, N]
         x = x.transpose(1, 2)
+
+        point_feature = x
 
         x = self.mlp2(x)
 
@@ -247,7 +271,10 @@ class PointNetPartSeg(nn.Module):
 
         logits = self.mlp_seg(x)
 
-        return logits
+        # [CHANGED] Earlier:
+        #   return logits
+        # Why: trans64 is needed in train_seg.step for the orthogonal regularization loss.
+        return logits, trans64
 
 
 

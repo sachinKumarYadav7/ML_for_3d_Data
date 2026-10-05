@@ -21,8 +21,18 @@ def step(points, labels, model):
     
     # TODO : Implement step function for classification.
 
-    logits = model(points)
-    loss = F.cross_entropy(logits, labels)
+    # [CHANGED] Added: move the batch to the model's device.
+    # Why: the training loop never calls .to(device), so on GPU the CPU batch
+    # and the CUDA model mismatch and training crashes on the first batch.
+    points, labels = points.to(device), labels.to(device)
+
+    # [CHANGED] Earlier:
+    #   logits = model(points)
+    #   loss = F.cross_entropy(logits, labels)
+    # Why: the model now also returns the 64x64 feature transform, and the paper adds
+    # an orthogonal regularization loss on it; without it the transform is unconstrained.
+    logits, trans64 = model(points)
+    loss = F.cross_entropy(logits, labels) + get_orthogonal_loss(trans64)
     preds = logits.argmax(dim=1)
 
     return loss, preds
@@ -68,7 +78,25 @@ def main(args):
     set_seed(args.seed)
     
     global device
-    device = "cpu" if args.gpu == -1 else f"cuda:{args.gpu}"
+    # [CHANGED] Earlier:
+    #   device = "cpu" if args.gpu == -1 else f"cuda:{args.gpu}"
+    # Why: this always picked CUDA (args.gpu is hard-coded to 0), which crashes on a Mac.
+    # Now: CUDA if available, else Apple GPU (MPS), else CPU. args.gpu = -1 still forces CPU.
+    if args.gpu == -1:
+        device = "cpu"
+    elif torch.cuda.is_available():
+        device = f"cuda:{args.gpu}"
+    elif torch.backends.mps.is_available():
+        device = "mps"
+    else:
+        device = "cpu"
+    print(f"Using device: {device}")
+
+    # [CHANGED] Added: mixed precision here uses torch.cuda.amp (autocast + GradScaler),
+    # which only works on CUDA, so --amp is turned off on MPS/CPU instead of misbehaving.
+    if args.amp and not device.startswith("cuda"):
+        print("--amp is only supported on CUDA; disabling it.")
+        args.amp = False
 
     model = PointNetCls(num_classes=40, input_transform=True, feature_transform=True)
     model = model.to(device)
@@ -113,6 +141,11 @@ def main(args):
             train_batch_loss, train_batch_acc = train_step(
                 points, labels, model, optimizer, train_acc_metric, scaler, args.amp
             )
+            # [CHANGED] Earlier:
+            #   train_epoch_loss.append(train_batch_loss)
+            # Why: storing the loss tensor keeps it attached to the autograd graph for the
+            # whole epoch; .item() stores just the number.
+            train_batch_loss = train_batch_loss.item()
             train_epoch_loss.append(train_batch_loss)
             pbar.set_description(
                 f"{epoch+1}/{args.epochs} epoch | loss: {train_batch_loss:.4f} | accuracy: {train_batch_acc*100:.1f}%"
