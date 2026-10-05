@@ -1,4 +1,4 @@
-pointnet/data/**
+# pointnet/data/**
 pointnet/checkpoints/classification/**
 pointnet/checkpoints/auto_encoding/**
 pointnet/checkpoints/segmentation/**
